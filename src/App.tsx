@@ -96,6 +96,7 @@ const STORAGE_LANGUAGE_KEY = 'hermes-kanban.language'
 const STORAGE_SIDEBAR_COLLAPSED_KEY = 'hermes-kanban.sidebarCollapsed'
 const STORAGE_CUSTOM_MODELS_KEY = 'hermes-kanban.customModels'
 const APP_BASE_PATH = import.meta.env.BASE_URL === '/' ? '' : import.meta.env.BASE_URL.replace(/\/+$/, '')
+const IS_STATIC_PREVIEW = import.meta.env.PROD && APP_BASE_PATH.length > 0
 
 type ModelChoice = {
   provider: string
@@ -288,6 +289,8 @@ const TEXT = {
     sessions: 'sessions',
     settings: 'Settings',
     settingsSubtitle: 'Language and live Hermes runtime configuration',
+    staticPreviewMessage: 'This GitHub Pages build is a static preview. Live Chat, Kanban, Profiles, and Settings require the local Vite dev server so /api and /gateway can proxy to Hermes Dashboard and Gateway.',
+    staticPreviewTitle: 'Static preview mode',
     skillCount: 'Skill count',
     slug: 'Slug',
     scratch: 'scratch',
@@ -531,6 +534,8 @@ const TEXT = {
     sessions: '会话',
     settings: '系统设置',
     settingsSubtitle: '语言与 Hermes 运行时配置',
+    staticPreviewMessage: '当前 GitHub Pages 页面是静态预览。Chat、Kanban、角色和系统设置需要使用本地 Vite dev server，让 /api 和 /gateway 代理到 Hermes Dashboard 与 Gateway。',
+    staticPreviewTitle: '静态预览模式',
     skillCount: '技能数量',
     slug: '标识',
     scratch: '临时',
@@ -803,7 +808,7 @@ function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [taskDetail, setTaskDetail] = useState<KanbanTaskDetail | null>(null)
   const [taskLog, setTaskLog] = useState<KanbanTaskLog | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!IS_STATIC_PREVIEW)
   const [detailLoading, setDetailLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -857,6 +862,7 @@ function App() {
   }, [])
 
   const refreshRuntimeModels = useCallback(async () => {
+    if (IS_STATIC_PREVIEW) return
     try {
       const [nextInfo, nextOptions, nextSessions] = await Promise.all([
         dashboardApi.getModelInfo(),
@@ -904,6 +910,11 @@ function App() {
   const currentBoard = boards.find((board) => board.slug === effectiveBoard)
 
   const refreshAll = useCallback(async (silent = false, boardOverride?: string) => {
+    if (IS_STATIC_PREVIEW) {
+      setLoading(false)
+      setError(null)
+      return
+    }
     if (!silent) setLoading(true)
     setError(null)
     const board = boardOverride || effectiveBoard
@@ -1110,14 +1121,15 @@ function App() {
 
         <main className="flex min-h-0 flex-col border-l border-[var(--console-line)] bg-[rgba(9,13,17,0.62)]">
           {activeView === 'chat' ? (
-            <ChatWorkspace labels={labels} />
+            <ChatWorkspace labels={labels} staticPreview={IS_STATIC_PREVIEW} />
           ) : activeView === 'profiles' ? (
-            <ProfilesWorkspace labels={labels} />
+            <ProfilesWorkspace labels={labels} staticPreview={IS_STATIC_PREVIEW} />
           ) : activeView === 'settings' ? (
             <SettingsWorkspace
               modelChoices={runtimeModelChoices}
               modelSwitching={modelSwitching}
               runtimeModel={runtimeModel}
+              staticPreview={IS_STATIC_PREVIEW}
               labels={labels}
               language={language}
               onAddModel={addCustomModelChoice}
@@ -1126,6 +1138,9 @@ function App() {
               onSwitchModel={switchRuntimeModel}
             />
           ) : (
+            IS_STATIC_PREVIEW ? (
+              <StaticPreviewPanel labels={labels} />
+            ) : (
             <>
               <Toolbar
                 assignees={assignees}
@@ -1181,6 +1196,7 @@ function App() {
                 )}
               </section>
             </>
+            )
           )}
         </main>
       </div>
@@ -1495,9 +1511,25 @@ function Sidebar(props: {
 
 type ChatConnectionState = 'connecting' | 'open' | 'closed' | 'error'
 
-function ProfilesWorkspace({ labels }: { labels: Labels }) {
+function StaticPreviewPanel({ labels }: { labels: Labels }) {
+  return (
+    <section className="flex min-h-0 flex-1 items-start justify-center overflow-y-auto p-4 scrollbar-thin lg:p-8">
+      <div className="w-full max-w-3xl rounded-2xl border border-[rgba(70,214,180,0.32)] bg-[rgba(16,22,28,0.68)] p-6 shadow-2xl shadow-black/20">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--console-accent)]">
+          <Signal className="h-4 w-4" />
+          {labels.staticPreviewTitle}
+        </div>
+        <h1 className="mt-3 text-2xl font-semibold tracking-normal">{labels.appSubtitle}</h1>
+        <p className="mt-3 text-sm leading-relaxed text-[var(--console-muted)]">{labels.staticPreviewMessage}</p>
+        <pre className="mt-5 overflow-x-auto rounded-lg border border-[var(--console-line)] bg-[#070b0f] p-3 font-mono text-xs text-[var(--console-muted)]">cd D:\git-workspace\AI\hermes\hermes-kanban{'\n'}npm run dev -- --host 0.0.0.0</pre>
+      </div>
+    </section>
+  )
+}
+
+function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPreview: boolean }) {
   const [profiles, setProfiles] = useState<DashboardProfileInfo[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!staticPreview)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -1507,6 +1539,10 @@ function ProfilesWorkspace({ labels }: { labels: Labels }) {
   const [soulLoading, setSoulLoading] = useState(false)
 
   const refreshProfiles = useCallback(async () => {
+    if (staticPreview) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -1517,14 +1553,15 @@ function ProfilesWorkspace({ labels }: { labels: Labels }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [staticPreview])
 
   useEffect(() => {
+    if (staticPreview) return undefined
     const timer = window.setTimeout(() => {
       void refreshProfiles()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [refreshProfiles])
+  }, [refreshProfiles, staticPreview])
 
   async function createProfile(input: { name: string; clone_from_default?: boolean; no_skills?: boolean; soul?: string }) {
     setBusy(true)
@@ -1618,6 +1655,7 @@ function ProfilesWorkspace({ labels }: { labels: Labels }) {
         </header>
 
         {error && <ErrorBanner message={error} />}
+        {staticPreview && <Notice message={labels.staticPreviewMessage} onClose={() => undefined} />}
         {notice && <Notice message={notice} onClose={() => setNotice(null)} />}
 
         {loading ? (
@@ -1723,6 +1761,7 @@ function SettingsWorkspace(props: {
   modelChoices: ModelChoice[]
   modelSwitching: boolean
   runtimeModel: ModelChoice | null
+  staticPreview: boolean
   onAddModel: (choice: ModelChoice) => void
   onLanguageChange: (language: Language) => void
   onRefreshRuntimeModels: () => Promise<void>
@@ -1738,7 +1777,7 @@ function SettingsWorkspace(props: {
   const [showAddModel, setShowAddModel] = useState(false)
   const [newProvider, setNewProvider] = useState('custom')
   const [newModel, setNewModel] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!props.staticPreview)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -1752,6 +1791,10 @@ function SettingsWorkspace(props: {
   const displayedStats = selectedStatsChoice ? selectedStats : totalStats
 
   const refreshSettings = useCallback(async () => {
+    if (props.staticPreview) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -1772,14 +1815,15 @@ function SettingsWorkspace(props: {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [props.staticPreview])
 
   useEffect(() => {
+    if (props.staticPreview) return undefined
     const timer = window.setTimeout(() => {
       void refreshSettings()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [refreshSettings])
+  }, [props.staticPreview, refreshSettings])
 
   function chooseProvider(nextProvider: string) {
     setProvider(nextProvider)
@@ -1848,6 +1892,7 @@ function SettingsWorkspace(props: {
         </header>
 
         {error && <ErrorBanner message={error} />}
+        {props.staticPreview && <Notice message={props.labels.staticPreviewMessage} onClose={() => undefined} />}
         {notice && <Notice message={notice} onClose={() => setNotice(null)} />}
 
         <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -2129,7 +2174,8 @@ function ModelChoiceCard(props: {
   )
 }
 
-function ChatWorkspace({ labels }: { labels: Labels }) {
+function ChatWorkspace({ labels, staticPreview }: { labels: Labels; staticPreview: boolean }) {
+  if (staticPreview) return <StaticPreviewPanel labels={labels} />
   return window.__HERMES_DASHBOARD_EMBEDDED_CHAT__ ? <PtyChatWorkspace /> : <GatewayChatWorkspace labels={labels} />
 }
 
