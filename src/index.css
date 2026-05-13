@@ -1,0 +1,181 @@
+@import 'tailwindcss';
+@import '@nous-research/ui/styles/globals.css';
+
+@source '../node_modules/@nous-research/ui/dist';
+
+:root {
+  color-scheme: dark;
+  --console-bg: #090d11;
+  --console-panel: #10161c;
+  --console-line: rgba(148, 163, 184, 0.18);
+  --console-line-strong: rgba(148, 163, 184, 0.32);
+  --console-text: #e6edf3;
+  --console-muted: #93a4b8;
+  --console-faint: #5d6c7c;
+  --console-accent: #46d6b4;
+  --console-accent-soft: rgba(70, 214, 180, 0.14);
+  --console-danger: #ff6b6b;
+  --console-warning: #d8b45c;
+  --console-success: #68d391;
+  font-family: Satoshi, Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  letter-spacing: 0;
+  background: var(--console-bg);
+  color: var(--console-text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+  min-height: 100dvh;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(70, 214, 180, 0.11), transparent 28rem),
+    radial-gradient(circle at 80% 16%, rgba(99, 167, 255, 0.09), transparent 30rem),
+    linear-gradient(135deg, #090d11 0%, #0d141a 44%, #080b0f 100%);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-noise {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  opacity: 0.08;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.22) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent 72%);
+}
+
+.scrollbar-thin {
+  scrollbar-color: rgba(148, 163, 184, 0.32) transparent;
+  scrollbar-width: thin;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+}
+
+.control {
+  min-height: 2.25rem;
+  border: 1px solid var(--console-line);
+  background: rgba(16, 22, 28, 0.82);
+  color: var(--console-text);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  outline: none;
+  transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.control:focus {
+  border-color: rgba(70, 214, 180, 0.62);
+  background: rgba(21, 30, 38, 0.95);
+}
+
+.control-icon-left {
+  padding-left: 2.35rem;
+}
+
+.control-select-icon-left {
+  padding-left: 2.35rem;
+  padding-right: 2rem;
+}
+
+.button-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--console-line);
+  background: rgba(16, 22, 28, 0.78);
+  color: var(--console-text);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease, background-color 180ms ease;
+}
+
+.button-base:hover {
+  border-color: rgba(70, 214, 180, 0.45);
+  background: rgba(70, 214, 180, 0.1);
+}
+
+.button-base:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.button-primary {
+  border-color: rgba(70, 214, 180, 0.56);
+  background: rgba(70, 214, 180, 0.16);
+  color: #d8fff5;
+}
+
+.button-danger:hover {
+  border-color: rgba(255, 107, 107, 0.55);
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.chat-terminal .xterm {
+  height: 100%;
+  padding: 0.85rem;
+}
+
+.chat-terminal .xterm-viewport {
+  background: transparent !important;
+}
+
+.chat-terminal .xterm-screen {
+  min-width: 100%;
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.09);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
