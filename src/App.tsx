@@ -95,6 +95,9 @@ const STORAGE_GATEWAY_PINNED_KEY = 'hermes-kanban.gatewayPinnedSessions'
 const STORAGE_LANGUAGE_KEY = 'hermes-kanban.language'
 const STORAGE_SIDEBAR_COLLAPSED_KEY = 'hermes-kanban.sidebarCollapsed'
 const STORAGE_CUSTOM_MODELS_KEY = 'hermes-kanban.customModels'
+const STORAGE_STATIC_DEMO_ENABLED_KEY = 'hermes-kanban.staticDemoEnabled'
+const STORAGE_STATIC_DEMO_KANBAN_KEY = 'hermes-kanban.staticDemoKanban'
+const STORAGE_STATIC_DEMO_PROFILES_KEY = 'hermes-kanban.staticDemoProfiles'
 const APP_BASE_PATH = import.meta.env.BASE_URL === '/' ? '' : import.meta.env.BASE_URL.replace(/\/+$/, '')
 const IS_STATIC_PREVIEW = import.meta.env.PROD && APP_BASE_PATH.length > 0
 
@@ -111,6 +114,25 @@ type ModelUsageStats = {
   outputTokens: number
   sessionCount: number
   totalTokens: number
+}
+
+type StaticDemoTask = KanbanTask & {
+  board: string
+  comments: KanbanTaskDetail['comments']
+  events: KanbanEvent[]
+  links: { parents: string[]; children: string[] }
+  log?: string
+  runs: KanbanTaskDetail['runs']
+}
+
+type StaticDemoKanbanState = {
+  boards: KanbanBoard[]
+  current: string
+  tasks: StaticDemoTask[]
+}
+
+type StaticDemoProfile = DashboardProfileInfo & {
+  soul: string
 }
 
 const TEXT = {
@@ -291,6 +313,12 @@ const TEXT = {
     settingsSubtitle: 'Language and live Hermes runtime configuration',
     staticPreviewMessage: 'This GitHub Pages build is a static preview. Live Chat, Kanban, Profiles, and Settings require the local Vite dev server so /api and /gateway can proxy to Hermes Dashboard and Gateway.',
     staticPreviewTitle: 'Static preview mode',
+    staticPreviewDialogTitle: 'Static preview is offline',
+    staticPreviewDialogBody: 'Hermes Dashboard and Gateway are not reachable from this GitHub Pages build. You can start the local dev server for live data, or switch to demo data to try the Kanban and Profiles workflows in your browser.',
+    staticPreviewDemoButton: 'Use demo data',
+    staticPreviewSetupButton: 'Show setup command',
+    staticPreviewDemoNotice: 'Demo data is running locally in this browser. Changes are saved to localStorage and never call Hermes.',
+    staticPreviewResetDemo: 'Reset demo data',
     skillCount: 'Skill count',
     slug: 'Slug',
     scratch: 'scratch',
@@ -536,6 +564,12 @@ const TEXT = {
     settingsSubtitle: '语言与 Hermes 运行时配置',
     staticPreviewMessage: '当前 GitHub Pages 页面是静态预览。Chat、Kanban、角色和系统设置需要使用本地 Vite dev server，让 /api 和 /gateway 代理到 Hermes Dashboard 与 Gateway。',
     staticPreviewTitle: '静态预览模式',
+    staticPreviewDialogTitle: '静态预览无法连接后端',
+    staticPreviewDialogBody: '这个 GitHub Pages 构建不能直接访问 Hermes Dashboard 和 Gateway。你可以启动本地 Vite dev server 使用真实数据，也可以切换到模拟数据，在浏览器里体验 Kanban 和 Profiles 的操作流程。',
+    staticPreviewDemoButton: '切换到模拟数据',
+    staticPreviewSetupButton: '查看启动命令',
+    staticPreviewDemoNotice: '当前正在使用浏览器本地模拟数据。所有改动只保存到 localStorage，不会调用 Hermes。',
+    staticPreviewResetDemo: '重置模拟数据',
     skillCount: '技能数量',
     slug: '标识',
     scratch: '临时',
@@ -772,6 +806,312 @@ function summarizeSessions(sessions: DashboardSessionInfo[], choice?: ModelChoic
   })
 }
 
+function nowEpoch(): number {
+  return Math.floor(Date.now() / 1000)
+}
+
+function makeStaticTask(input: Omit<StaticDemoTask, 'comments' | 'events' | 'links' | 'runs'> & {
+  comments?: StaticDemoTask['comments']
+  events?: KanbanEvent[]
+  links?: StaticDemoTask['links']
+  runs?: StaticDemoTask['runs']
+}): StaticDemoTask {
+  return {
+    comments: input.comments ?? [],
+    events: input.events ?? [{ id: input.created_at, task_id: input.id, kind: 'created', created_at: input.created_at }],
+    links: input.links ?? { parents: [], children: [] },
+    runs: input.runs ?? [],
+    ...input,
+  }
+}
+
+function createDefaultStaticKanbanState(): StaticDemoKanbanState {
+  const created = nowEpoch()
+  const boards: KanbanBoard[] = [
+    {
+      slug: 'flight-ops',
+      name: '低空任务调度',
+      description: '参考 AgentEarth 的低空感知、航线规划与态势研判任务队列。',
+      color: '#46d6b4',
+      icon: 'kanban',
+      is_current: true,
+    },
+    {
+      slug: 'platform-rd',
+      name: '平台研发队列',
+      description: '用于体验 Hermes 多执行者协作、前端修复和交付跟踪。',
+      color: '#63a7ff',
+      icon: 'blocks',
+    },
+  ]
+  const tasks: StaticDemoTask[] = [
+    makeStaticTask({
+      id: 'task-7f3a21',
+      board: 'flight-ops',
+      title: '整理滨州低空感知演示任务拆解',
+      body: '把演示流程拆成数据准备、态势生成、航线规划、报告输出四个可交付任务。',
+      status: 'triage',
+      priority: 2,
+      assignee: 'planner',
+      tenant: 'binzhou',
+      workspace_kind: 'planning',
+      workspace_path: 'workspaces/binzhou-demo',
+      created_at: created - 46 * 60,
+      diagnostics: [],
+      comments: [{ id: 1, task_id: 'task-7f3a21', author: 'dashboard', body: '需要保留人工复核节点。', created_at: created - 21 * 60 }],
+    }),
+    makeStaticTask({
+      id: 'task-91d0be',
+      board: 'flight-ops',
+      title: '生成重点目标周界巡检航线',
+      body: '调用航线规划能力，输出三条备选路线，并标注禁飞区绕行原因。',
+      status: 'ready',
+      priority: 3,
+      assignee: 'pathplan-operator',
+      tenant: 'binzhou',
+      workspace_kind: 'route',
+      workspace_path: 'workspaces/binzhou-route',
+      created_at: created - 132 * 60,
+      diagnostics: [{ severity: 'warning', message: '等待最新气象约束确认。' }],
+      events: [{ id: 2, task_id: 'task-91d0be', kind: 'specified', created_at: created - 80 * 60 }],
+      links: { parents: ['task-7f3a21'], children: [] },
+    }),
+    makeStaticTask({
+      id: 'task-b0a44c',
+      board: 'flight-ops',
+      title: '汇总实时态势异常点',
+      body: '读取感知事件，合并异常高度、速度和进入敏感区的对象。',
+      status: 'running',
+      priority: 1,
+      assignee: 'geo-analyst',
+      tenant: 'binzhou',
+      workspace_kind: 'analysis',
+      workspace_path: 'workspaces/binzhou-situation',
+      created_at: created - 220 * 60,
+      started_at: created - 18 * 60,
+      latest_summary: '已处理 37 条事件，正在合并高度异常样本。',
+      diagnostics: [],
+      runs: [{
+        id: 3,
+        task_id: 'task-b0a44c',
+        profile: 'geo-analyst',
+        status: 'running',
+        summary: 'Loaded telemetry stream and built first anomaly cluster.',
+        metadata: { changed_files: ['reports/anomaly-clusters.md', 'data/binzhou-events.json'] },
+        started_at: created - 18 * 60,
+      }],
+      log: 'demo run\nloaded telemetry stream\nclustered 37 events\nwaiting for route handoff\n',
+    }),
+    makeStaticTask({
+      id: 'task-3c620f',
+      board: 'flight-ops',
+      title: '修复航线报告图片缺失',
+      body: '报告生成后地图截图路径为空，需要回查导出链路。',
+      status: 'blocked',
+      priority: 2,
+      assignee: 'frontend-builder',
+      tenant: 'binzhou',
+      workspace_kind: 'debug',
+      workspace_path: 'workspaces/report-export',
+      created_at: created - 310 * 60,
+      diagnostics: [{ severity: 'error', message: '缺少截图产物路径。' }],
+      comments: [{ id: 2, task_id: 'task-3c620f', author: 'frontend-builder', body: '疑似导出完成事件没有携带 artifact。', created_at: created - 50 * 60 }],
+      events: [{ id: 4, task_id: 'task-3c620f', kind: 'blocked', created_at: created - 48 * 60 }],
+      runs: [{
+        id: 4,
+        task_id: 'task-3c620f',
+        profile: 'frontend-builder',
+        status: 'error',
+        error: 'artifact path missing',
+        started_at: created - 52 * 60,
+        ended_at: created - 48 * 60,
+      }],
+    }),
+    makeStaticTask({
+      id: 'task-a73ff8',
+      board: 'platform-rd',
+      title: '对齐智能体工作台页签命名',
+      body: '角色管理、多智能体看板、可视化编排、MCP 配置器按新顺序展示。',
+      status: 'done',
+      priority: 1,
+      assignee: 'frontend-builder',
+      tenant: 'platform',
+      workspace_kind: 'frontend',
+      workspace_path: 'packages/platform/frontend',
+      created_at: created - 600 * 60,
+      completed_at: created - 70 * 60,
+      result: '导航顺序和文案已更新。',
+      diagnostics: [],
+      runs: [{
+        id: 5,
+        task_id: 'task-a73ff8',
+        profile: 'frontend-builder',
+        status: 'done',
+        outcome: 'success',
+        summary: 'Updated navigation copy and screenshots.',
+        metadata: { changed_files: ['src/router/index.ts', 'src/components/AgentDevSubNav.vue'] },
+        started_at: created - 90 * 60,
+        ended_at: created - 70 * 60,
+      }],
+    }),
+  ]
+  return { boards, current: 'flight-ops', tasks }
+}
+
+function createDefaultStaticProfiles(): StaticDemoProfile[] {
+  return [
+    {
+      name: 'default',
+      path: 'profiles/default/SOUL.md',
+      is_default: true,
+      provider: 'OpenAI',
+      model: 'gpt-5.4',
+      has_env: true,
+      skill_count: 18,
+      soul: ['# default', '', '你是 Hermes 的默认执行角色。', '优先保持任务闭环，必要时拆解计划、调用工具、回写结果。'].join('\n'),
+    },
+    {
+      name: 'planner',
+      path: 'profiles/planner/SOUL.md',
+      is_default: false,
+      provider: 'OpenAI',
+      model: 'gpt-5.4',
+      has_env: false,
+      skill_count: 11,
+      soul: ['# planner', '', '你负责把模糊需求整理成可执行任务。', '输出必须包含目标、边界、风险、依赖与验收方式。'].join('\n'),
+    },
+    {
+      name: 'frontend-builder',
+      path: 'profiles/frontend-builder/SOUL.md',
+      is_default: false,
+      provider: 'OpenAI',
+      model: 'gpt-5.4',
+      has_env: true,
+      skill_count: 14,
+      soul: ['# frontend-builder', '', '你负责构建当前产品风格一致的前端界面。', '实现时优先复用本项目组件、布局密度和视觉语言。'].join('\n'),
+    },
+  ]
+}
+
+function readStaticDemoKanbanState(): StaticDemoKanbanState {
+  try {
+    const raw = localStorage.getItem(STORAGE_STATIC_DEMO_KANBAN_KEY)
+    if (!raw) return createDefaultStaticKanbanState()
+    const parsed = JSON.parse(raw) as StaticDemoKanbanState
+    if (!Array.isArray(parsed.boards) || !Array.isArray(parsed.tasks)) return createDefaultStaticKanbanState()
+    return parsed
+  } catch {
+    return createDefaultStaticKanbanState()
+  }
+}
+
+function writeStaticDemoKanbanState(state: StaticDemoKanbanState) {
+  localStorage.setItem(STORAGE_STATIC_DEMO_KANBAN_KEY, JSON.stringify(state))
+}
+
+function readStaticDemoProfiles(): StaticDemoProfile[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_STATIC_DEMO_PROFILES_KEY)
+    if (!raw) return createDefaultStaticProfiles()
+    const parsed = JSON.parse(raw) as StaticDemoProfile[]
+    if (!Array.isArray(parsed)) return createDefaultStaticProfiles()
+    return parsed
+  } catch {
+    return createDefaultStaticProfiles()
+  }
+}
+
+function writeStaticDemoProfiles(profiles: StaticDemoProfile[]) {
+  localStorage.setItem(STORAGE_STATIC_DEMO_PROFILES_KEY, JSON.stringify(profiles))
+}
+
+function buildStaticDemoSnapshot(
+  state: StaticDemoKanbanState,
+  boardSlug: string,
+  tenant: string,
+  includeArchived: boolean,
+) {
+  const now = nowEpoch()
+  const boardTasks = state.tasks
+    .filter((task) => task.board === boardSlug)
+    .filter((task) => includeArchived || task.status !== 'archived')
+    .filter((task) => !tenant || task.tenant === tenant)
+    .map((task) => ({
+      ...task,
+      age: {
+        created_age_seconds: Math.max(0, now - task.created_at),
+        started_age_seconds: task.started_at ? Math.max(0, now - task.started_at) : null,
+        time_to_complete_seconds: task.completed_at && task.started_at ? Math.max(0, task.completed_at - task.started_at) : null,
+      },
+      warnings: task.diagnostics?.length ? { count: task.diagnostics.length, highest_severity: task.diagnostics[0]?.severity ?? 'warning' } : null,
+    }))
+  const columns = STATUS_ORDER.map((status) => ({
+    name: status,
+    tasks: boardTasks.filter((task) => task.status === status),
+  }))
+  const counts = state.tasks.reduce<Record<string, Record<string, number>>>((acc, task) => {
+    acc[task.board] ??= {}
+    acc[task.board][task.status] = (acc[task.board][task.status] ?? 0) + 1
+    return acc
+  }, {})
+  const boards = state.boards.map((board) => {
+    const boardCounts = counts[board.slug] ?? {}
+    return {
+      ...board,
+      is_current: board.slug === boardSlug,
+      counts: boardCounts,
+      total: Object.values(boardCounts).reduce((sum, count) => sum + count, 0),
+    }
+  })
+  const diagnostics = boardTasks
+    .filter((task) => task.diagnostics?.length)
+    .map<KanbanDiagnosticRow>((task) => ({
+      task_id: task.id,
+      task_title: task.title,
+      task_status: task.status,
+      task_assignee: task.assignee,
+      diagnostics: task.diagnostics ?? [],
+    }))
+  const stats: KanbanStats = {
+    by_status: Object.fromEntries(STATUS_ORDER.map((status) => [status, columns.find((column) => column.name === status)?.tasks.length ?? 0])),
+    by_assignee: boardTasks.reduce<Record<string, number>>((acc, task) => {
+      const key = task.assignee || 'unassigned'
+      acc[key] = (acc[key] ?? 0) + 1
+      return acc
+    }, {}),
+    oldest_ready_age_seconds: Math.max(0, ...boardTasks.filter((task) => task.status === 'ready').map((task) => now - task.created_at)),
+    total: boardTasks.length,
+  }
+  const boardData: KanbanBoardResponse = {
+    columns,
+    tenants: Array.from(new Set(state.tasks.filter((task) => task.board === boardSlug).map((task) => task.tenant).filter(Boolean))) as string[],
+    assignees: Array.from(new Set(state.tasks.map((task) => task.assignee).filter(Boolean))) as string[],
+    latest_event_id: Math.max(0, ...state.tasks.flatMap((task) => task.events.map((event) => event.id))),
+    now,
+  }
+  const assignees = boardData.assignees.map<KanbanAssignee>((name) => ({
+    name,
+    on_disk: true,
+    counts: state.tasks.filter((task) => task.assignee === name).reduce<Record<string, number>>((acc, task) => {
+      acc[task.status] = (acc[task.status] ?? 0) + 1
+      return acc
+    }, {}),
+  }))
+  return { assignees, boardData, boards, diagnostics, stats }
+}
+
+function staticDemoTaskDetail(state: StaticDemoKanbanState, taskId: string): KanbanTaskDetail | null {
+  const task = state.tasks.find((item) => item.id === taskId)
+  if (!task) return null
+  return {
+    task,
+    comments: task.comments,
+    events: task.events,
+    links: task.links,
+    runs: task.runs,
+  }
+}
+
 function readInitialView(): WorkspaceView {
   if (window.location.pathname.includes('/chat')) return 'chat'
   if (window.location.pathname.includes('/profiles')) return 'profiles'
@@ -823,8 +1163,12 @@ function App() {
   const [runtimeModel, setRuntimeModel] = useState<ModelChoice | null>(null)
   const [runtimeModelChoices, setRuntimeModelChoices] = useState<ModelChoice[]>(readCustomModelChoices)
   const [modelSwitching, setModelSwitching] = useState(false)
+  const [staticDemoEnabled, setStaticDemoEnabled] = useState(() => localStorage.getItem(STORAGE_STATIC_DEMO_ENABLED_KEY) === '1')
+  const [showStaticPrompt, setShowStaticPrompt] = useState(() => IS_STATIC_PREVIEW && localStorage.getItem(STORAGE_STATIC_DEMO_ENABLED_KEY) !== '1')
+  const [staticDemoState, setStaticDemoState] = useState<StaticDemoKanbanState>(readStaticDemoKanbanState)
   const refreshRef = useRef<() => Promise<void>>(async () => undefined)
   const labels = TEXT[language]
+  const staticDemo = IS_STATIC_PREVIEW && staticDemoEnabled
 
   useEffect(() => {
     const handlePopState = () => {
@@ -906,11 +1250,74 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [refreshRuntimeModels])
 
-  const effectiveBoard = selectedBoard || boards.find((board) => board.is_current)?.slug || 'default'
+  const staticSelectedBoard = staticDemoState.boards.some((board) => board.slug === selectedBoard)
+    ? selectedBoard
+    : staticDemoState.current || staticDemoState.boards[0]?.slug || 'flight-ops'
+  const effectiveBoard = staticDemo
+    ? staticSelectedBoard
+    : selectedBoard || boards.find((board) => board.is_current)?.slug || 'default'
   const currentBoard = boards.find((board) => board.slug === effectiveBoard)
+
+  const applyStaticDemoState = useCallback((nextState: StaticDemoKanbanState, boardOverride?: string) => {
+    const requestedBoard = boardOverride || selectedBoard || nextState.current || 'flight-ops'
+    const board = nextState.boards.some((item) => item.slug === requestedBoard)
+      ? requestedBoard
+      : nextState.current || nextState.boards[0]?.slug || 'flight-ops'
+    const snapshot = buildStaticDemoSnapshot(nextState, board, tenantFilter, showArchived)
+    setBoards(snapshot.boards)
+    setBoardData(snapshot.boardData)
+    setStats(snapshot.stats)
+    setAssignees(snapshot.assignees)
+    setDiagnostics(snapshot.diagnostics)
+    setDiagnosticCount(snapshot.diagnostics.length)
+    setLatestCursor(snapshot.boardData.latest_event_id)
+    setSocketState('closed')
+    setEventCount(nextState.tasks.reduce((sum, task) => sum + task.events.length, 0))
+    setLoading(false)
+    setError(null)
+    if (!selectedBoard || !nextState.boards.some((item) => item.slug === selectedBoard)) {
+      setSelectedBoard(board)
+      localStorage.setItem(STORAGE_BOARD_KEY, board)
+    }
+  }, [selectedBoard, showArchived, tenantFilter])
+
+  function commitStaticDemoState(updater: (state: StaticDemoKanbanState) => StaticDemoKanbanState, boardOverride?: string) {
+    setStaticDemoState((current) => {
+      const next = updater(current)
+      writeStaticDemoKanbanState(next)
+      window.setTimeout(() => applyStaticDemoState(next, boardOverride), 0)
+      return next
+    })
+  }
+
+  function enableStaticDemo() {
+    localStorage.setItem(STORAGE_STATIC_DEMO_ENABLED_KEY, '1')
+    setStaticDemoEnabled(true)
+    setShowStaticPrompt(false)
+    const next = readStaticDemoKanbanState()
+    setStaticDemoState(next)
+    applyStaticDemoState(next, next.current)
+    setNotice(labels.staticPreviewDemoNotice)
+  }
+
+  function resetStaticDemo() {
+    const next = createDefaultStaticKanbanState()
+    writeStaticDemoKanbanState(next)
+    localStorage.setItem(STORAGE_STATIC_DEMO_PROFILES_KEY, JSON.stringify(createDefaultStaticProfiles()))
+    setStaticDemoState(next)
+    setSelectedBoard(next.current)
+    localStorage.setItem(STORAGE_BOARD_KEY, next.current)
+    applyStaticDemoState(next, next.current)
+    setSelectedTaskId(null)
+    setSelectedIds(new Set())
+    setTaskDetail(null)
+    setTaskLog(null)
+    setNotice(labels.staticPreviewDemoNotice)
+  }
 
   const refreshAll = useCallback(async (silent = false, boardOverride?: string) => {
     if (IS_STATIC_PREVIEW) {
+      if (staticDemoEnabled) applyStaticDemoState(staticDemoState, boardOverride)
       setLoading(false)
       setError(null)
       return
@@ -943,11 +1350,17 @@ function App() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [effectiveBoard, selectedBoard, showArchived, tenantFilter])
+  }, [applyStaticDemoState, effectiveBoard, selectedBoard, showArchived, staticDemoEnabled, staticDemoState, tenantFilter])
 
   useEffect(() => {
     refreshRef.current = () => refreshAll(true)
   }, [refreshAll])
+
+  useEffect(() => {
+    if (!staticDemo) return
+    const timer = window.setTimeout(() => applyStaticDemoState(staticDemoState), 0)
+    return () => window.clearTimeout(timer)
+  }, [applyStaticDemoState, staticDemo, staticDemoState])
 
   useEffect(() => {
     if (activeView !== 'kanban') {
@@ -979,6 +1392,14 @@ function App() {
     if (!selectedTaskId) {
       return
     }
+    if (staticDemo) {
+      const timer = window.setTimeout(() => {
+        setTaskLog(null)
+        setTaskDetail(staticDemoTaskDetail(staticDemoState, selectedTaskId))
+        setDetailLoading(false)
+      }, 0)
+      return () => window.clearTimeout(timer)
+    }
     let ignore = false
     const timer = window.setTimeout(() => {
       setDetailLoading(true)
@@ -998,7 +1419,7 @@ function App() {
       ignore = true
       window.clearTimeout(timer)
     }
-  }, [activeView, effectiveBoard, selectedTaskId])
+  }, [activeView, effectiveBoard, selectedTaskId, staticDemo, staticDemoState])
 
   const diagnosticsByTask = useMemo(() => {
     const map = new Map<string, KanbanDiagnosticRow>()
@@ -1032,6 +1453,10 @@ function App() {
     localStorage.setItem(STORAGE_BOARD_KEY, slug)
     setSelectedTaskId(null)
     setSelectedIds(new Set())
+    if (staticDemo) {
+      commitStaticDemoState((state) => ({ ...state, current: slug }), slug)
+      return
+    }
     void refreshAll(false, slug)
   }
 
@@ -1060,7 +1485,10 @@ function App() {
       setNotice(message)
       if (opts.clearSelection) clearSelection()
       if (opts.refresh !== false) await refreshAll(true)
-      if (opts.refreshDetail !== false && selectedTaskId) setTaskDetail(await kanbanApi.getTask(selectedTaskId, { board: effectiveBoard }))
+      if (opts.refreshDetail !== false && selectedTaskId) {
+        if (staticDemo) setTaskDetail(staticDemoTaskDetail(staticDemoState, selectedTaskId))
+        else setTaskDetail(await kanbanApi.getTask(selectedTaskId, { board: effectiveBoard }))
+      }
     } catch (err) {
       setNotice((err as Error).message)
     } finally {
@@ -1069,6 +1497,20 @@ function App() {
   }
 
   async function moveTask(taskId: string, status: KanbanTaskStatus) {
+    if (staticDemo) {
+      await runAction(async () => {
+        commitStaticDemoState((state) => ({
+          ...state,
+          tasks: state.tasks.map((task) => task.id === taskId ? {
+            ...task,
+            status,
+            completed_at: status === 'done' ? nowEpoch() : task.completed_at,
+            events: [...task.events, { id: Date.now(), task_id: task.id, kind: `status:${status}`, created_at: nowEpoch() }],
+          } : task),
+        }))
+      }, `${compactId(taskId)} ${interpolate(labels.statusSetTo, { status: statusLabel(labels, status) })}`, { refresh: false })
+      return
+    }
     await runAction(async () => {
       await kanbanApi.updateTask(taskId, { status }, { board: effectiveBoard })
     }, `${compactId(taskId)} ${interpolate(labels.statusSetTo, { status: statusLabel(labels, status) })}`)
@@ -1077,7 +1519,19 @@ function App() {
   async function loadLog(taskId: string) {
     setBusy(true)
     try {
-      setTaskLog(await kanbanApi.getTaskLog(taskId, { board: effectiveBoard, tail: 120000 }))
+      if (staticDemo) {
+        const task = staticDemoState.tasks.find((item) => item.id === taskId)
+        setTaskLog({
+          task_id: taskId,
+          path: task?.workspace_path ? `${task.workspace_path}/worker.log` : '',
+          exists: Boolean(task?.log),
+          size_bytes: task?.log?.length ?? 0,
+          content: task?.log ?? '',
+          truncated: false,
+        })
+      } else {
+        setTaskLog(await kanbanApi.getTaskLog(taskId, { board: effectiveBoard, tail: 120000 }))
+      }
     } catch (err) {
       setNotice((err as Error).message)
     } finally {
@@ -1086,11 +1540,151 @@ function App() {
   }
 
   function bulkUpdate(input: Omit<BulkTaskInput, 'ids'>, message: string) {
+    if (staticDemo) {
+      void runAction(async () => {
+        commitStaticDemoState((state) => ({
+          ...state,
+          tasks: state.tasks.map((task) => {
+            if (!selectedIds.has(task.id)) return task
+            const status = input.archive ? 'archived' : input.status ?? task.status
+            return {
+              ...task,
+              status,
+              assignee: input.assignee ?? task.assignee,
+              result: input.result ?? task.result,
+              latest_summary: input.summary ?? task.latest_summary,
+              completed_at: status === 'done' ? nowEpoch() : task.completed_at,
+              events: [...task.events, { id: Date.now() + Math.floor(Math.random() * 1000), task_id: task.id, kind: input.archive ? 'archived' : 'updated', created_at: nowEpoch() }],
+            }
+          }),
+        }))
+      }, message, { clearSelection: true, refresh: false })
+      return
+    }
     void runAction(async () => {
       const res = await kanbanApi.bulkUpdate({ ids: selectedIdList, ...input }, { board: effectiveBoard })
       const failures = res.results.filter((item) => !item.ok)
       if (failures.length) throw new Error(`${failures.length} task updates failed: ${failures.map((item) => compactId(item.id)).join(', ')}`)
     }, message, { clearSelection: true })
+  }
+
+  function patchStaticTask(taskId: string, patch: Partial<KanbanTask> & { block_reason?: string; summary?: string }, kind = 'updated') {
+    commitStaticDemoState((state) => ({
+      ...state,
+      tasks: state.tasks.map((task) => {
+        if (task.id !== taskId) return task
+        const status = patch.status ?? task.status
+        return {
+          ...task,
+          ...patch,
+          status,
+          result: patch.summary ?? patch.result ?? task.result,
+          latest_summary: patch.summary ?? task.latest_summary,
+          completed_at: status === 'done' ? nowEpoch() : task.completed_at,
+          diagnostics: patch.block_reason ? [{ severity: 'warning', message: patch.block_reason }] : (patch.diagnostics ?? task.diagnostics),
+          events: [...task.events, { id: Date.now(), task_id: task.id, kind, created_at: nowEpoch() }],
+        }
+      }),
+    }))
+  }
+
+  function createStaticTask(input: { title: string; body?: string; assignee?: string; tenant?: string; priority?: number; triage?: boolean }) {
+    const id = `task-${Math.random().toString(16).slice(2, 8)}`
+    const created = nowEpoch()
+    const task = makeStaticTask({
+      id,
+      board: effectiveBoard,
+      title: input.title,
+      body: input.body,
+      status: input.triage ? 'triage' : 'todo',
+      priority: input.priority ?? 1,
+      assignee: input.assignee || null,
+      tenant: input.tenant || 'platform',
+      workspace_kind: 'manual',
+      workspace_path: `workspaces/${effectiveBoard}`,
+      created_at: created,
+      created_by: 'demo-user',
+      diagnostics: [],
+    })
+    commitStaticDemoState((state) => ({ ...state, tasks: [task, ...state.tasks] }))
+    setSelectedTaskId(id)
+  }
+
+  function addStaticComment(taskId: string, body: string) {
+    commitStaticDemoState((state) => ({
+      ...state,
+      tasks: state.tasks.map((task) => task.id === taskId ? {
+        ...task,
+        comments: [...task.comments, { id: Date.now(), task_id: taskId, author: 'dashboard', body, created_at: nowEpoch() }],
+        events: [...task.events, { id: Date.now() + 1, task_id: taskId, kind: 'comment_added', created_at: nowEpoch() }],
+      } : task),
+    }))
+  }
+
+  function addStaticLink(parentId: string, childId: string) {
+    commitStaticDemoState((state) => ({
+      ...state,
+      tasks: state.tasks.map((task) => {
+        if (task.id === parentId && !task.links.children.includes(childId)) return { ...task, links: { ...task.links, children: [...task.links.children, childId] } }
+        if (task.id === childId && !task.links.parents.includes(parentId)) return { ...task, links: { ...task.links, parents: [...task.links.parents, parentId] } }
+        return task
+      }),
+    }))
+  }
+
+  function deleteStaticLink(parentId: string, childId: string) {
+    commitStaticDemoState((state) => ({
+      ...state,
+      tasks: state.tasks.map((task) => {
+        if (task.id === parentId) return { ...task, links: { ...task.links, children: task.links.children.filter((id) => id !== childId) } }
+        if (task.id === childId) return { ...task, links: { ...task.links, parents: task.links.parents.filter((id) => id !== parentId) } }
+        return task
+      }),
+    }))
+  }
+
+  function createStaticBoard(input: { slug: string; name?: string; description?: string; icon?: string; color?: string; switch?: boolean }) {
+    const board: KanbanBoard = {
+      slug: input.slug,
+      name: input.name || input.slug,
+      description: input.description,
+      icon: input.icon || 'kanban',
+      color: input.color || '#46d6b4',
+    }
+    const nextBoard = input.switch === false ? effectiveBoard : board.slug
+    commitStaticDemoState((state) => ({
+      ...state,
+      boards: state.boards.some((item) => item.slug === board.slug)
+        ? state.boards.map((item) => item.slug === board.slug ? { ...item, ...board } : item)
+        : [...state.boards, board],
+      current: nextBoard,
+    }), nextBoard)
+    setSelectedBoard(nextBoard)
+    localStorage.setItem(STORAGE_BOARD_KEY, nextBoard)
+  }
+
+  function updateStaticBoard(slug: string, input: { name?: string; description?: string; icon?: string; color?: string }) {
+    commitStaticDemoState((state) => ({
+      ...state,
+      boards: state.boards.map((board) => board.slug === slug ? { ...board, ...input } : board),
+    }))
+  }
+
+  function deleteStaticBoard(slug: string, hardDelete: boolean) {
+    commitStaticDemoState((state) => {
+      if (!hardDelete) {
+        return { ...state, boards: state.boards.map((board) => board.slug === slug ? { ...board, archived: true } : board) }
+      }
+      const boards = state.boards.filter((board) => board.slug !== slug)
+      const current = boards[0]?.slug || 'flight-ops'
+      setSelectedBoard(current)
+      localStorage.setItem(STORAGE_BOARD_KEY, current)
+      return {
+        boards,
+        current,
+        tasks: state.tasks.filter((task) => task.board !== slug),
+      }
+    })
   }
 
   return (
@@ -1123,7 +1717,11 @@ function App() {
           {activeView === 'chat' ? (
             <ChatWorkspace labels={labels} staticPreview={IS_STATIC_PREVIEW} />
           ) : activeView === 'profiles' ? (
-            <ProfilesWorkspace labels={labels} staticPreview={IS_STATIC_PREVIEW} />
+            IS_STATIC_PREVIEW && !staticDemoEnabled ? (
+              <StaticPreviewPanel labels={labels} onUseDemo={enableStaticDemo} />
+            ) : (
+              <ProfilesWorkspace labels={labels} staticDemo={staticDemo} staticPreview={IS_STATIC_PREVIEW} />
+            )
           ) : activeView === 'settings' ? (
             <SettingsWorkspace
               modelChoices={runtimeModelChoices}
@@ -1138,8 +1736,8 @@ function App() {
               onSwitchModel={switchRuntimeModel}
             />
           ) : (
-            IS_STATIC_PREVIEW ? (
-              <StaticPreviewPanel labels={labels} />
+            IS_STATIC_PREVIEW && !staticDemoEnabled ? (
+              <StaticPreviewPanel labels={labels} onUseDemo={enableStaticDemo} />
             ) : (
             <>
               <Toolbar
@@ -1155,7 +1753,18 @@ function App() {
                 tenantFilter={tenantFilter}
                 onAssigneeFilter={setAssigneeFilter}
                 onCreateTask={() => setShowCreateTask(true)}
-                onDispatch={() => void runAction(async () => { await kanbanApi.dispatch({ board: effectiveBoard, max: 8 }) }, labels.dispatchCycleRequested)}
+                onDispatch={() => {
+                  if (staticDemo) {
+                    const readyTask = staticDemoState.tasks.find((task) => task.board === effectiveBoard && task.status === 'ready')
+                    if (!readyTask) {
+                      setNotice(labels.noTasksInStatus.replace('{status}', labels.statusReady))
+                      return
+                    }
+                    void moveTask(readyTask.id, 'running')
+                    return
+                  }
+                  void runAction(async () => { await kanbanApi.dispatch({ board: effectiveBoard, max: 8 }) }, labels.dispatchCycleRequested)
+                }}
                 onManageBoard={() => setShowBoardManager(true)}
                 onRefresh={() => void refreshAll(false)}
                 onSearch={setSearch}
@@ -1167,6 +1776,12 @@ function App() {
                 }}
               />
 
+              {staticDemo && (
+                <div className="mx-4 mt-4 flex flex-col justify-between gap-2 rounded-lg border border-[rgba(70,214,180,0.28)] bg-[rgba(70,214,180,0.08)] p-3 text-sm text-[#d8fff5] sm:flex-row sm:items-center">
+                  <span>{labels.staticPreviewDemoNotice}</span>
+                  <button className="button-base min-h-0 px-3 py-1.5 text-xs" onClick={resetStaticDemo} type="button">{labels.staticPreviewResetDemo}</button>
+                </div>
+              )}
               {error && <ErrorBanner message={error} />}
               {notice && <Notice message={notice} onClose={() => setNotice(null)} />}
               <DiagnosticsStrip diagnostics={diagnostics} labels={labels} onSelectTask={setSelectedTaskId} />
@@ -1201,6 +1816,14 @@ function App() {
         </main>
       </div>
 
+      {IS_STATIC_PREVIEW && showStaticPrompt && !staticDemoEnabled && (
+        <StaticPreviewPrompt
+          labels={labels}
+          onClose={() => setShowStaticPrompt(false)}
+          onUseDemo={enableStaticDemo}
+        />
+      )}
+
       {activeView === 'kanban' && selectedIds.size > 0 && (
         <BulkActionBar
           assignees={assignees}
@@ -1221,27 +1844,45 @@ function App() {
         labels={labels}
         loading={detailLoading}
         log={taskLog}
-        onAddComment={(taskId, body) => runAction(async () => { await kanbanApi.addComment(taskId, body, { board: effectiveBoard }) }, labels.commentAdded)}
-        onAddLink={(parentId, childId) => runAction(async () => { await kanbanApi.addLink(parentId, childId, { board: effectiveBoard }) }, labels.taskLinkCreated)}
-        onAssign={(taskId, assignee) => runAction(async () => { await kanbanApi.updateTask(taskId, { assignee }, { board: effectiveBoard }) }, labels.taskReassigned)}
+        onAddComment={(taskId, body) => runAction(async () => {
+          if (staticDemo) addStaticComment(taskId, body)
+          else await kanbanApi.addComment(taskId, body, { board: effectiveBoard })
+        }, labels.commentAdded, { refresh: !staticDemo })}
+        onAddLink={(parentId, childId) => runAction(async () => {
+          if (staticDemo) addStaticLink(parentId, childId)
+          else await kanbanApi.addLink(parentId, childId, { board: effectiveBoard })
+        }, labels.taskLinkCreated, { refresh: !staticDemo })}
+        onAssign={(taskId, assignee) => runAction(async () => {
+          if (staticDemo) patchStaticTask(taskId, { assignee }, 'assigned')
+          else await kanbanApi.updateTask(taskId, { assignee }, { board: effectiveBoard })
+        }, labels.taskReassigned, { refresh: !staticDemo })}
         onClose={() => {
           setSelectedTaskId(null)
           setTaskDetail(null)
           setTaskLog(null)
         }}
-        onDeleteLink={(parentId, childId) => runAction(async () => { await kanbanApi.deleteLink(parentId, childId, { board: effectiveBoard }) }, labels.taskLinkRemoved)}
+        onDeleteLink={(parentId, childId) => runAction(async () => {
+          if (staticDemo) deleteStaticLink(parentId, childId)
+          else await kanbanApi.deleteLink(parentId, childId, { board: effectiveBoard })
+        }, labels.taskLinkRemoved, { refresh: !staticDemo })}
         onLoadLog={loadLog}
         onOpenTask={setSelectedTaskId}
         onReassign={(taskId, profile, reclaimFirst, reason) => runAction(async () => {
-          await kanbanApi.reassignTask(taskId, { profile, reclaim_first: reclaimFirst, reason }, { board: effectiveBoard })
-        }, labels.taskReassigned)}
+          if (staticDemo) patchStaticTask(taskId, { assignee: profile }, reclaimFirst ? 'reassigned_with_reclaim' : 'reassigned')
+          else await kanbanApi.reassignTask(taskId, { profile, reclaim_first: reclaimFirst, reason }, { board: effectiveBoard })
+        }, labels.taskReassigned, { refresh: !staticDemo })}
         onReclaim={(taskId, reason) => runAction(async () => {
-          await kanbanApi.reclaimTask(taskId, { reason }, { board: effectiveBoard })
-        }, labels.taskReclaimed)}
-        onSetStatus={(taskId, status, extra) => runAction(async () => { await kanbanApi.updateTask(taskId, { status, ...extra }, { board: effectiveBoard }) }, interpolate(labels.statusSetTo, { status: statusLabel(labels, status) }))}
+          if (staticDemo) patchStaticTask(taskId, { status: 'ready', latest_summary: reason }, 'reclaimed')
+          else await kanbanApi.reclaimTask(taskId, { reason }, { board: effectiveBoard })
+        }, labels.taskReclaimed, { refresh: !staticDemo })}
+        onSetStatus={(taskId, status, extra) => runAction(async () => {
+          if (staticDemo) patchStaticTask(taskId, { status, ...extra }, `status:${status}`)
+          else await kanbanApi.updateTask(taskId, { status, ...extra }, { board: effectiveBoard })
+        }, interpolate(labels.statusSetTo, { status: statusLabel(labels, status) }), { refresh: !staticDemo })}
         onSpecify={(taskId) => runAction(async () => {
-          await kanbanApi.specifyTask(taskId, { author: 'dashboard' }, { board: effectiveBoard })
-        }, labels.taskSpecificationRefreshed)}
+          if (staticDemo) patchStaticTask(taskId, { status: 'ready', latest_summary: 'Demo specification refreshed and ready for dispatch.' }, 'specified')
+          else await kanbanApi.specifyTask(taskId, { author: 'dashboard' }, { board: effectiveBoard })
+        }, labels.taskSpecificationRefreshed, { refresh: !staticDemo })}
         open={Boolean(selectedTaskId)}
       />}
 
@@ -1252,10 +1893,13 @@ function App() {
           tenants={boardData?.tenants ?? []}
           onClose={() => setShowCreateTask(false)}
           onCreate={(input) => runAction(async () => {
-            const res = await kanbanApi.createTask(input, { board: effectiveBoard })
-            if (res.warning) setNotice(res.warning)
+            if (staticDemo) createStaticTask(input)
+            else {
+              const res = await kanbanApi.createTask(input, { board: effectiveBoard })
+              if (res.warning) setNotice(res.warning)
+            }
             setShowCreateTask(false)
-          }, labels.taskCreated)}
+          }, labels.taskCreated, { refresh: !staticDemo })}
         />
       )}
 
@@ -1264,6 +1908,11 @@ function App() {
           labels={labels}
           onClose={() => setShowCreateBoard(false)}
           onCreate={(input) => runAction(async () => {
+            if (staticDemo) {
+              createStaticBoard(input)
+              setShowCreateBoard(false)
+              return
+            }
             const res = await kanbanApi.createBoard(input)
             setShowCreateBoard(false)
             setSelectedBoard(res.board.slug)
@@ -1278,6 +1927,11 @@ function App() {
           board={currentBoard}
           labels={labels}
           onArchive={(slug) => runAction(async () => {
+            if (staticDemo) {
+              deleteStaticBoard(slug, false)
+              setShowBoardManager(false)
+              return
+            }
             await kanbanApi.deleteBoard(slug, false)
             setShowBoardManager(false)
             const res = await kanbanApi.getBoards(false)
@@ -1288,6 +1942,11 @@ function App() {
           }, labels.boardArchived, { refresh: false })}
           onClose={() => setShowBoardManager(false)}
           onDelete={(slug) => runAction(async () => {
+            if (staticDemo) {
+              deleteStaticBoard(slug, true)
+              setShowBoardManager(false)
+              return
+            }
             await kanbanApi.deleteBoard(slug, true)
             setShowBoardManager(false)
             const res = await kanbanApi.getBoards(false)
@@ -1297,9 +1956,10 @@ function App() {
             await refreshAll(true, next)
           }, labels.boardDeleted, { refresh: false })}
           onSave={(slug, input) => runAction(async () => {
-            await kanbanApi.updateBoard(slug, input)
+            if (staticDemo) updateStaticBoard(slug, input)
+            else await kanbanApi.updateBoard(slug, input)
             setShowBoardManager(false)
-          }, labels.boardSettingsUpdated)}
+          }, labels.boardSettingsUpdated, { refresh: !staticDemo })}
         />
       )}
     </div>
@@ -1511,7 +2171,7 @@ function Sidebar(props: {
 
 type ChatConnectionState = 'connecting' | 'open' | 'closed' | 'error'
 
-function StaticPreviewPanel({ labels }: { labels: Labels }) {
+function StaticPreviewPanel({ labels, onUseDemo }: { labels: Labels; onUseDemo?: () => void }) {
   return (
     <section className="flex min-h-0 flex-1 items-start justify-center overflow-y-auto p-4 scrollbar-thin lg:p-8">
       <div className="w-full max-w-3xl rounded-2xl border border-[rgba(70,214,180,0.32)] bg-[rgba(16,22,28,0.68)] p-6 shadow-2xl shadow-black/20">
@@ -1522,13 +2182,45 @@ function StaticPreviewPanel({ labels }: { labels: Labels }) {
         <h1 className="mt-3 text-2xl font-semibold tracking-normal">{labels.appSubtitle}</h1>
         <p className="mt-3 text-sm leading-relaxed text-[var(--console-muted)]">{labels.staticPreviewMessage}</p>
         <pre className="mt-5 overflow-x-auto rounded-lg border border-[var(--console-line)] bg-[#070b0f] p-3 font-mono text-xs text-[var(--console-muted)]">cd D:\git-workspace\AI\hermes\hermes-kanban{'\n'}npm run dev -- --host 0.0.0.0</pre>
+        {onUseDemo && (
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button className="button-base button-primary" onClick={onUseDemo} type="button">
+              <Blocks className="h-4 w-4" />
+              {labels.staticPreviewDemoButton}
+            </button>
+          </div>
+        )}
       </div>
     </section>
   )
 }
 
-function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPreview: boolean }) {
-  const [profiles, setProfiles] = useState<DashboardProfileInfo[]>([])
+function StaticPreviewPrompt(props: { labels: Labels; onClose: () => void; onUseDemo: () => void }) {
+  return (
+    <Modal title={props.labels.staticPreviewDialogTitle} onClose={props.onClose}>
+      <div className="space-y-4">
+        <div className="rounded-lg border border-[rgba(70,214,180,0.28)] bg-[rgba(70,214,180,0.08)] p-3">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--console-accent)]">
+            <Signal className="h-4 w-4" />
+            {props.labels.staticPreviewTitle}
+          </div>
+          <p className="mt-3 text-sm leading-relaxed text-[var(--console-muted)]">{props.labels.staticPreviewDialogBody}</p>
+        </div>
+        <pre className="overflow-x-auto rounded-lg border border-[var(--console-line)] bg-[#070b0f] p-3 font-mono text-xs text-[var(--console-muted)]">cd D:\git-workspace\AI\hermes\hermes-kanban{'\n'}npm run dev -- --host 0.0.0.0</pre>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button className="button-base" onClick={props.onClose} type="button">{props.labels.staticPreviewSetupButton}</button>
+          <button className="button-base button-primary" onClick={props.onUseDemo} type="button">
+            <Blocks className="h-4 w-4" />
+            {props.labels.staticPreviewDemoButton}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function ProfilesWorkspace({ labels, staticDemo, staticPreview }: { labels: Labels; staticDemo: boolean; staticPreview: boolean }) {
+  const [profiles, setProfiles] = useState<StaticDemoProfile[] | DashboardProfileInfo[]>(() => staticDemo ? readStaticDemoProfiles() : [])
   const [loading, setLoading] = useState(!staticPreview)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1540,6 +2232,10 @@ function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPr
 
   const refreshProfiles = useCallback(async () => {
     if (staticPreview) {
+      if (staticDemo) {
+        setProfiles(readStaticDemoProfiles())
+        setNotice(labels.staticPreviewDemoNotice)
+      }
       setLoading(false)
       return
     }
@@ -1553,15 +2249,21 @@ function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPr
     } finally {
       setLoading(false)
     }
-  }, [staticPreview])
+  }, [labels.staticPreviewDemoNotice, staticDemo, staticPreview])
 
   useEffect(() => {
-    if (staticPreview) return undefined
+    if (staticPreview) {
+      if (staticDemo) {
+        const timer = window.setTimeout(() => setProfiles(readStaticDemoProfiles()), 0)
+        return () => window.clearTimeout(timer)
+      }
+      return undefined
+    }
     const timer = window.setTimeout(() => {
       void refreshProfiles()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [refreshProfiles, staticPreview])
+  }, [refreshProfiles, staticDemo, staticPreview])
 
   async function createProfile(input: { name: string; clone_from_default?: boolean; no_skills?: boolean; soul?: string }) {
     setBusy(true)
@@ -1569,6 +2271,26 @@ function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPr
     setNotice(null)
     try {
       const { soul, ...profileInput } = input
+      if (staticDemo) {
+        const current = readStaticDemoProfiles()
+        if (current.some((profile) => profile.name === profileInput.name)) throw new Error(`Profile ${profileInput.name} already exists`)
+        const base = profileInput.clone_from_default ? current.find((profile) => profile.is_default) : null
+        const next: StaticDemoProfile[] = [...current, {
+          name: profileInput.name,
+          path: `profiles/${profileInput.name}/SOUL.md`,
+          is_default: false,
+          provider: base?.provider ?? 'OpenAI',
+          model: base?.model ?? 'gpt-5.4',
+          has_env: Boolean(base?.has_env),
+          skill_count: profileInput.no_skills ? 0 : (base?.skill_count ?? 0),
+          soul: soul?.trim() || [`# ${profileInput.name}`, '', '请在这里定义这个角色的职责、边界和协作方式。'].join('\n'),
+        }]
+        writeStaticDemoProfiles(next)
+        setProfiles(next)
+        setShowCreateProfile(false)
+        setNotice(labels.profileCreated)
+        return
+      }
       const created = await dashboardApi.createProfile(profileInput)
       if (soul?.trim()) await dashboardApi.updateProfileSoul(created.name, soul.trim())
       setShowCreateProfile(false)
@@ -1587,6 +2309,11 @@ function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPr
     setSoulLoading(true)
     setError(null)
     try {
+      if (staticDemo) {
+        const demoProfile = readStaticDemoProfiles().find((item) => item.name === profile.name)
+        setSoulText(demoProfile?.soul ?? '')
+        return
+      }
       const res = await dashboardApi.getProfileSoul(profile.name)
       setSoulText(res.content)
     } catch (err) {
@@ -1602,6 +2329,14 @@ function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPr
     setError(null)
     setNotice(null)
     try {
+      if (staticDemo) {
+        const next = readStaticDemoProfiles().map((profile) => profile.name === soulTarget.name ? { ...profile, soul: soulText } : profile)
+        writeStaticDemoProfiles(next)
+        setProfiles(next)
+        setSoulTarget(null)
+        setNotice(labels.profileSoulSaved)
+        return
+      }
       await dashboardApi.updateProfileSoul(soulTarget.name, soulText)
       setSoulTarget(null)
       setNotice(labels.profileSoulSaved)
@@ -1620,6 +2355,13 @@ function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPr
     setError(null)
     setNotice(null)
     try {
+      if (staticDemo) {
+        const next = readStaticDemoProfiles().filter((item) => item.name !== profile.name)
+        writeStaticDemoProfiles(next)
+        setProfiles(next)
+        setNotice(labels.profileDeleted)
+        return
+      }
       await dashboardApi.deleteProfile(profile.name)
       setNotice(labels.profileDeleted)
       await refreshProfiles()
@@ -1628,6 +2370,10 @@ function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPr
     } finally {
       setBusy(false)
     }
+  }
+
+  if (staticPreview && !staticDemo) {
+    return <StaticPreviewPanel labels={labels} />
   }
 
   return (
@@ -1655,7 +2401,7 @@ function ProfilesWorkspace({ labels, staticPreview }: { labels: Labels; staticPr
         </header>
 
         {error && <ErrorBanner message={error} />}
-        {staticPreview && <Notice message={labels.staticPreviewMessage} onClose={() => undefined} />}
+        {staticDemo && <Notice message={labels.staticPreviewDemoNotice} onClose={() => undefined} />}
         {notice && <Notice message={notice} onClose={() => setNotice(null)} />}
 
         {loading ? (
