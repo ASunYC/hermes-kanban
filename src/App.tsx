@@ -830,7 +830,7 @@ function createDefaultStaticKanbanState(): StaticDemoKanbanState {
   const boards: KanbanBoard[] = [
     {
       slug: 'flight-ops',
-      name: '低空任务调度',
+      name: '飞行任务调度',
       description: '参考 AgentEarth 的低空感知、航线规划与态势研判任务队列。',
       color: '#46d6b4',
       icon: 'kanban',
