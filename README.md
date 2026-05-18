@@ -32,6 +32,10 @@ https://asunyc.github.io/hermes-kanban/
 
 Hermes Kanban 是 Hermes 工作流的浏览器控制台。它面向需要同时观察聊天会话、任务队列、执行角色和模型配置的使用场景，提供一个更集中、更适合调度的前端入口。
 
+<p align="center">
+  <img alt="Hermes Kanban 当前界面截图" src="./public/screenshot.png">
+</p>
+
 - 🔌 **连接 Hermes Dashboard**：通过 `/api` 读取状态、会话、模型和 Profile 信息。
 - 💬 **连接 Hermes Gateway**：通过 `/gateway` 发起聊天请求，并保存本地会话历史。
 - 🧭 **管理 Kanban 任务**：对接 `/api/plugins/kanban/*`，支持看板、任务、评论、事件和批量操作。
