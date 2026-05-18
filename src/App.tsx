@@ -92,6 +92,7 @@ const STORAGE_GATEWAY_KEY_KEY = 'hermes-kanban.gatewayKey'
 const STORAGE_GATEWAY_SESSION_KEY = 'hermes-kanban.gatewaySession'
 const STORAGE_GATEWAY_SESSIONS_KEY = 'hermes-kanban.gatewaySessions'
 const STORAGE_GATEWAY_PINNED_KEY = 'hermes-kanban.gatewayPinnedSessions'
+const STORAGE_CHAT_SIDEBAR_WIDTH_KEY = 'hermes-kanban.chatSidebarWidth'
 const STORAGE_LANGUAGE_KEY = 'hermes-kanban.language'
 const STORAGE_SIDEBAR_COLLAPSED_KEY = 'hermes-kanban.sidebarCollapsed'
 const STORAGE_CUSTOM_MODELS_KEY = 'hermes-kanban.customModels'
@@ -100,6 +101,10 @@ const STORAGE_STATIC_DEMO_KANBAN_KEY = 'hermes-kanban.staticDemoKanban'
 const STORAGE_STATIC_DEMO_PROFILES_KEY = 'hermes-kanban.staticDemoProfiles'
 const APP_BASE_PATH = import.meta.env.BASE_URL === '/' ? '' : import.meta.env.BASE_URL.replace(/\/+$/, '')
 const IS_STATIC_PREVIEW = import.meta.env.PROD && APP_BASE_PATH.length > 0
+const CHAT_SIDEBAR_DEFAULT_WIDTH = 288
+const CHAT_SIDEBAR_MIN_WIDTH = 240
+const CHAT_SIDEBAR_MAX_WIDTH = 520
+const CHAT_MAIN_MIN_WIDTH = 420
 
 type ModelChoice = {
   provider: string
@@ -289,6 +294,8 @@ const TEXT = {
     recovery: 'Recovery',
     refresh: 'Refresh',
     refreshBoard: 'Refresh board',
+    localSessions: 'Local sessions',
+    historySessions: 'History sessions',
     reassign: 'Reassign',
     reassignProfile: 'Reassign profile',
     relationships: 'Relationships',
@@ -540,6 +547,8 @@ const TEXT = {
     recovery: '恢复',
     refresh: '刷新',
     refreshBoard: '刷新看板',
+    localSessions: '本地会话',
+    historySessions: '历史会话',
     reassign: '重新分配',
     reassignProfile: '重新分配执行配置',
     relationships: '任务关系',
@@ -2947,7 +2956,10 @@ type GatewayChatSession = {
   createdAt: number
   updatedAt: number
   messages: GatewayChatMessage[]
+  local?: boolean
+  history?: boolean
 }
+type GatewaySessionListMode = 'local' | 'history'
 type GatewayRunEvent = {
   event?: string
   run_id?: string
@@ -2987,6 +2999,8 @@ function createGatewaySessionRecord(id = createGatewaySessionId()): GatewayChatS
     createdAt: now,
     updatedAt: now,
     messages: [],
+    local: true,
+    history: false,
   }
 }
 
@@ -3001,6 +3015,7 @@ function sanitizeGatewaySessionRecord(value: unknown): GatewayChatSession | null
   if (!value || typeof value !== 'object') return null
   const record = value as Partial<GatewayChatSession>
   if (!record.id || typeof record.id !== 'string') return null
+  const hasSourceFlags = typeof record.local === 'boolean' || typeof record.history === 'boolean'
   const messages = Array.isArray(record.messages)
     ? record.messages.filter((message): message is GatewayChatMessage => (
       Boolean(message)
@@ -3015,6 +3030,8 @@ function sanitizeGatewaySessionRecord(value: unknown): GatewayChatSession | null
     createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
     updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now(),
     messages,
+    local: hasSourceFlags ? record.local !== false : record.id.startsWith('kanban_chat_'),
+    history: hasSourceFlags ? record.history === true : !record.id.startsWith('kanban_chat_'),
   }
 }
 
@@ -3043,6 +3060,18 @@ function loadGatewayPinnedSessions() {
   } catch {
     return new Set<string>()
   }
+}
+
+function clampChatSidebarWidth(value: number, maxWidth = CHAT_SIDEBAR_MAX_WIDTH) {
+  const safeMax = Math.max(CHAT_SIDEBAR_MIN_WIDTH, Math.min(CHAT_SIDEBAR_MAX_WIDTH, maxWidth))
+  return Math.min(safeMax, Math.max(CHAT_SIDEBAR_MIN_WIDTH, Math.round(value)))
+}
+
+function loadChatSidebarWidth() {
+  const stored = Number(localStorage.getItem(STORAGE_CHAT_SIDEBAR_WIDTH_KEY))
+  return Number.isFinite(stored)
+    ? clampChatSidebarWidth(stored)
+    : CHAT_SIDEBAR_DEFAULT_WIDTH
 }
 
 function sortGatewaySessions(sessions: GatewayChatSession[]) {
@@ -3143,6 +3172,8 @@ function dashboardSessionToGateway(info: DashboardSessionInfo, messages: Dashboa
     createdAt: Math.round(info.started_at * 1000),
     updatedAt: Math.round((info.last_active || info.ended_at || info.started_at) * 1000),
     messages: mappedMessages,
+    local: false,
+    history: true,
   }
 }
 
@@ -3160,6 +3191,8 @@ function mergeGatewaySessions(current: GatewayChatSession[], incoming: GatewayCh
       createdAt: Math.min(existing.createdAt, session.createdAt),
       updatedAt: Math.max(existing.updatedAt, session.updatedAt),
       messages: session.messages.length ? session.messages : existing.messages,
+      local: existing.local !== false || session.local === true,
+      history: existing.history === true || session.history === true,
     })
   }
   return sortGatewaySessions(Array.from(byId.values()))
@@ -3223,7 +3256,10 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
   const [events, setEvents] = useState<string[]>([])
   const [input, setInput] = useState('')
   const [sessionSearch, setSessionSearch] = useState('')
+  const [sessionListMode, setSessionListMode] = useState<GatewaySessionListMode>('local')
   const [copyNotice, setCopyNotice] = useState<string | null>(null)
+  const [chatSidebarWidth, setChatSidebarWidth] = useState(loadChatSidebarWidth)
+  const [isResizingChatSidebar, setIsResizingChatSidebar] = useState(false)
   const [busy, setBusy] = useState(false)
   const [syncingSessions, setSyncingSessions] = useState(false)
   const [renameTarget, setRenameTarget] = useState<GatewayChatSession | null>(null)
@@ -3231,23 +3267,27 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   const [error, setError] = useState<string | null>(null)
   const streamAbortRef = useRef<AbortController | null>(null)
+  const chatLayoutRef = useRef<HTMLDivElement | null>(null)
   const messageScrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const activeSession = useMemo(() => sessions.find((session) => session.id === sessionId) || sessions[0], [sessionId, sessions])
   const messages = useMemo(() => activeSession?.messages ?? [], [activeSession])
+  const localSessions = useMemo(() => sessions.filter((session) => session.local !== false), [sessions])
+  const historySessions = useMemo(() => sessions.filter((session) => session.history === true), [sessions])
+  const visibleSessions = sessionListMode === 'history' ? historySessions : localSessions
   const filteredSessions = useMemo(() => {
     const needle = sessionSearch.trim().toLowerCase()
-    const base = needle ? sessions.filter((session) => (
+    const base = needle ? visibleSessions.filter((session) => (
       session.title.toLowerCase().includes(needle)
       || session.id.toLowerCase().includes(needle)
       || session.messages.some((message) => message.content.toLowerCase().includes(needle))
-    )) : sessions
+    )) : visibleSessions
     return [...base].sort((a, b) => {
       const pinnedDelta = Number(pinnedSessionIds.has(b.id)) - Number(pinnedSessionIds.has(a.id))
       if (pinnedDelta !== 0) return pinnedDelta
       return b.updatedAt - a.updatedAt
     })
-  }, [pinnedSessionIds, sessionSearch, sessions])
+  }, [pinnedSessionIds, sessionSearch, visibleSessions])
   const gatewayBase = normalizeGatewayUrl(gatewayUrl)
   const gatewayIsProxy = gatewayBase.startsWith('/gateway')
 
@@ -3259,6 +3299,34 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
   useEffect(() => {
     localStorage.setItem(STORAGE_GATEWAY_PINNED_KEY, JSON.stringify(Array.from(pinnedSessionIds)))
   }, [pinnedSessionIds])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_CHAT_SIDEBAR_WIDTH_KEY, String(chatSidebarWidth))
+  }, [chatSidebarWidth])
+
+  useEffect(() => {
+    if (!isResizingChatSidebar) return undefined
+
+    const resizeFromPointer = (event: PointerEvent) => {
+      const rect = chatLayoutRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const maxWidth = rect.width - CHAT_MAIN_MIN_WIDTH
+      setChatSidebarWidth(clampChatSidebarWidth(rect.right - event.clientX, maxWidth))
+    }
+
+    const stopResize = () => setIsResizingChatSidebar(false)
+    document.body.classList.add('chat-sidebar-resizing')
+    window.addEventListener('pointermove', resizeFromPointer)
+    window.addEventListener('pointerup', stopResize, { once: true })
+    window.addEventListener('pointercancel', stopResize, { once: true })
+
+    return () => {
+      document.body.classList.remove('chat-sidebar-resizing')
+      window.removeEventListener('pointermove', resizeFromPointer)
+      window.removeEventListener('pointerup', stopResize)
+      window.removeEventListener('pointercancel', stopResize)
+    }
+  }, [isResizingChatSidebar])
 
   useEffect(() => {
     const node = messageScrollRef.current
@@ -3302,6 +3370,7 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
     const next = createGatewaySessionRecord()
     setSessions((current) => sortGatewaySessions([next, ...current]))
     setSessionId(next.id)
+    setSessionListMode('local')
     setInput('')
     setSessionSearch('')
     setEvents([])
@@ -3375,6 +3444,7 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
         return dashboardSessionToGateway(session, detail.messages || [])
       }))
       setSessions((current) => mergeGatewaySessions(current, imported))
+      setSessionListMode('history')
       if (imported.length && (!activeSession || messages.length === 0)) {
         setSessionId(imported[0].id)
       }
@@ -3619,6 +3689,22 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
     }
   }
 
+  const resizeChatSidebarByKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      setChatSidebarWidth((current) => clampChatSidebarWidth(current + 24))
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      setChatSidebarWidth((current) => clampChatSidebarWidth(current - 24))
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      setChatSidebarWidth(CHAT_SIDEBAR_MIN_WIDTH)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      setChatSidebarWidth(CHAT_SIDEBAR_MAX_WIDTH)
+    }
+  }
+
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="shrink-0 space-y-3 border-b border-[var(--console-line)] p-4">
@@ -3686,92 +3772,132 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-3 p-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="scrollbar-thin min-h-0 overflow-y-auto border border-[var(--console-line)] bg-[rgba(8,13,18,0.7)] p-3" ref={messageScrollRef}>
-          {messages.length === 0 ? (
-            <div className="grid h-full place-items-center text-center text-sm text-[var(--console-muted)]">
-              <div>
-                <MessageSquare className="mx-auto mb-3 h-7 w-7 text-[var(--console-accent)]" />
-                <div className="font-mono text-xs uppercase tracking-[0.18em]">{labels.readyForGatewayRun}</div>
+      <div className="min-h-0 flex-1 p-4">
+        <div className="flex h-full min-h-0" ref={chatLayoutRef}>
+          <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto border border-[var(--console-line)] bg-[rgba(8,13,18,0.7)] p-3" ref={messageScrollRef}>
+            {messages.length === 0 ? (
+              <div className="grid h-full place-items-center text-center text-sm text-[var(--console-muted)]">
+                <div>
+                  <MessageSquare className="mx-auto mb-3 h-7 w-7 text-[var(--console-accent)]" />
+                  <div className="font-mono text-xs uppercase tracking-[0.18em]">{labels.readyForGatewayRun}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {messages.map((message) => <GatewayMessageBubble key={message.id} labels={labels} message={message} onCopy={copyGatewayText} />)}
+              </div>
+            )}
+          </div>
+
+          <div
+            aria-label="Resize chat sessions panel"
+            aria-orientation="vertical"
+            aria-valuemax={CHAT_SIDEBAR_MAX_WIDTH}
+            aria-valuemin={CHAT_SIDEBAR_MIN_WIDTH}
+            aria-valuenow={chatSidebarWidth}
+            className={`group hidden w-4 shrink-0 cursor-col-resize items-stretch justify-center px-1 xl:flex ${isResizingChatSidebar ? 'text-[var(--console-accent)]' : 'text-[var(--console-faint)]'}`}
+            onKeyDown={resizeChatSidebarByKeyboard}
+            onPointerDown={(event) => {
+              event.preventDefault()
+              setIsResizingChatSidebar(true)
+            }}
+            role="separator"
+            tabIndex={0}
+            title="Drag to resize"
+          >
+            <div className="my-1 w-px rounded-full bg-[var(--console-line)] transition-colors group-hover:bg-[rgba(70,214,180,0.62)]" />
+          </div>
+
+          <aside
+            className="hidden min-h-0 shrink-0 overflow-y-auto border border-[var(--console-line)] bg-[rgba(16,22,28,0.55)] p-3 xl:block scrollbar-thin"
+            style={{ width: chatSidebarWidth }}
+          >
+            <div className="mb-5">
+              <div className="mb-3 grid grid-cols-2 gap-1">
+                {([
+                  ['local', labels.localSessions, localSessions.length],
+                  ['history', labels.historySessions, historySessions.length],
+                ] as const).map(([mode, label, count]) => (
+                  <button
+                    className={`flex h-9 items-center justify-between gap-2 rounded border px-2 text-left text-xs transition ${
+                      sessionListMode === mode
+                        ? 'border-[rgba(70,214,180,0.58)] bg-[rgba(70,214,180,0.14)] text-[var(--console-accent)]'
+                        : 'border-[var(--console-line)] bg-[rgba(9,13,17,0.34)] text-[var(--console-muted)] hover:border-[var(--console-line-strong)] hover:text-[var(--console-text)]'
+                    }`}
+                    key={mode}
+                    onClick={() => setSessionListMode(mode)}
+                    type="button"
+                  >
+                    <span className="truncate font-mono text-[0.65rem] uppercase tracking-[0.12em]">{label}</span>
+                    <span className="font-mono text-[0.65rem]">{count}</span>
+                  </button>
+                ))}
+              </div>
+              <label className="relative mb-3 block">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--console-faint)]" />
+                <input
+                  className="control h-9 w-full pl-8 text-xs"
+                  onChange={(event) => setSessionSearch(event.target.value)}
+                  placeholder={labels.searchLocalSessions}
+                  value={sessionSearch}
+                />
+              </label>
+              <div className="space-y-1">
+                {filteredSessions.length ? filteredSessions.map((session) => (
+                  <div
+                    className={`group grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 border px-2 py-2 ${session.id === sessionId ? 'border-[rgba(70,214,180,0.45)] bg-[rgba(70,214,180,0.1)]' : 'border-[var(--console-line)] bg-[rgba(9,13,17,0.34)]'}`}
+                    key={session.id}
+                  >
+                    <button className="min-w-0 text-left" disabled={busy} onClick={() => switchGatewaySession(session.id)} type="button">
+                      <div className="truncate text-sm text-[var(--console-text)]">{session.title}</div>
+                      <div className="mt-1 truncate font-mono text-[0.66rem] text-[var(--console-faint)]">{compactId(session.id)} / {session.messages.length} msgs</div>
+                    </button>
+                    <button
+                      className={`grid h-7 w-7 place-items-center rounded border border-transparent hover:border-[var(--console-line-strong)] ${pinnedSessionIds.has(session.id) ? 'text-[var(--console-accent)]' : 'text-[var(--console-faint)] hover:text-[var(--console-text)]'}`}
+                      onClick={() => togglePinnedSession(session.id)}
+                      title={pinnedSessionIds.has(session.id) ? labels.unpinLocalSession : labels.pinLocalSession}
+                      type="button"
+                    >
+                      <Pin className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      className="grid h-7 w-7 place-items-center rounded border border-transparent text-[var(--console-faint)] hover:border-[var(--console-line-strong)] hover:text-[var(--console-text)]"
+                      onClick={() => setRenameTarget(session)}
+                      title={labels.renameLocalSession}
+                      type="button"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      className="grid h-7 w-7 place-items-center rounded border border-transparent text-[var(--console-faint)] hover:border-[rgba(255,107,107,0.42)] hover:text-[var(--console-danger)]"
+                      disabled={busy}
+                      onClick={() => deleteGatewaySession(session.id)}
+                      title={labels.deleteLocalSession}
+                      type="button"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )) : (
+                  <div className="border border-[var(--console-line)] bg-[rgba(9,13,17,0.28)] p-3 font-mono text-xs text-[var(--console-faint)]">
+                    {labels.noMatchingLocalSessions}
+                  </div>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {messages.map((message) => <GatewayMessageBubble key={message.id} labels={labels} message={message} onCopy={copyGatewayText} />)}
+
+            <div className="mb-3 text-xs uppercase tracking-[0.18em] text-[var(--console-muted)]">{labels.runEvents}</div>
+            <div className="space-y-2">
+              {events.length === 0 ? (
+                <div className="font-mono text-xs text-[var(--console-faint)]">{labels.idle}</div>
+              ) : events.map((event, index) => (
+                <div className="border-l border-[rgba(70,214,180,0.36)] pl-2 font-mono text-xs text-[var(--console-muted)]" key={`${event}-${index}`}>
+                  {event}
+                </div>
+              ))}
             </div>
-          )}
+          </aside>
         </div>
-
-        <aside className="hidden min-h-0 overflow-y-auto border border-[var(--console-line)] bg-[rgba(16,22,28,0.55)] p-3 xl:block scrollbar-thin">
-          <div className="mb-5">
-            <div className="mb-3 flex items-center justify-between gap-2 text-xs uppercase tracking-[0.18em] text-[var(--console-muted)]">
-              <span>{labels.sessions}</span>
-              <span className="font-mono text-[0.65rem]">{sessions.length}</span>
-            </div>
-            <label className="relative mb-3 block">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--console-faint)]" />
-              <input
-                className="control h-9 w-full pl-8 text-xs"
-                onChange={(event) => setSessionSearch(event.target.value)}
-                placeholder={labels.searchLocalSessions}
-                value={sessionSearch}
-              />
-            </label>
-            <div className="space-y-1">
-              {filteredSessions.length ? filteredSessions.map((session) => (
-                <div
-                  className={`group grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 border px-2 py-2 ${session.id === sessionId ? 'border-[rgba(70,214,180,0.45)] bg-[rgba(70,214,180,0.1)]' : 'border-[var(--console-line)] bg-[rgba(9,13,17,0.34)]'}`}
-                  key={session.id}
-                >
-                  <button className="min-w-0 text-left" disabled={busy} onClick={() => switchGatewaySession(session.id)} type="button">
-                    <div className="truncate text-sm text-[var(--console-text)]">{session.title}</div>
-                    <div className="mt-1 truncate font-mono text-[0.66rem] text-[var(--console-faint)]">{compactId(session.id)} / {session.messages.length} msgs</div>
-                  </button>
-                  <button
-                    className={`grid h-7 w-7 place-items-center rounded border border-transparent hover:border-[var(--console-line-strong)] ${pinnedSessionIds.has(session.id) ? 'text-[var(--console-accent)]' : 'text-[var(--console-faint)] hover:text-[var(--console-text)]'}`}
-                    onClick={() => togglePinnedSession(session.id)}
-                    title={pinnedSessionIds.has(session.id) ? labels.unpinLocalSession : labels.pinLocalSession}
-                    type="button"
-                  >
-                    <Pin className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    className="grid h-7 w-7 place-items-center rounded border border-transparent text-[var(--console-faint)] hover:border-[var(--console-line-strong)] hover:text-[var(--console-text)]"
-                    onClick={() => setRenameTarget(session)}
-                    title={labels.renameLocalSession}
-                    type="button"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    className="grid h-7 w-7 place-items-center rounded border border-transparent text-[var(--console-faint)] hover:border-[rgba(255,107,107,0.42)] hover:text-[var(--console-danger)]"
-                    disabled={busy}
-                    onClick={() => deleteGatewaySession(session.id)}
-                    title={labels.deleteLocalSession}
-                    type="button"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )) : (
-                <div className="border border-[var(--console-line)] bg-[rgba(9,13,17,0.28)] p-3 font-mono text-xs text-[var(--console-faint)]">
-                  {labels.noMatchingLocalSessions}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mb-3 text-xs uppercase tracking-[0.18em] text-[var(--console-muted)]">{labels.runEvents}</div>
-          <div className="space-y-2">
-            {events.length === 0 ? (
-              <div className="font-mono text-xs text-[var(--console-faint)]">{labels.idle}</div>
-            ) : events.map((event, index) => (
-              <div className="border-l border-[rgba(70,214,180,0.36)] pl-2 font-mono text-xs text-[var(--console-muted)]" key={`${event}-${index}`}>
-                {event}
-              </div>
-            ))}
-          </div>
-        </aside>
       </div>
 
       <div className="shrink-0 border-t border-[var(--console-line)] p-4">

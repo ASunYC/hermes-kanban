@@ -46,6 +46,11 @@ body {
     linear-gradient(135deg, #090d11 0%, #0d141a 44%, #080b0f 100%);
 }
 
+body.chat-sidebar-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 button,
 input,
 select,
