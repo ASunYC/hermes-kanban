@@ -536,6 +536,9 @@ export const dashboardApi = {
   getSessionMessages: (id: string) =>
     fetchDashboardJson<DashboardSessionMessagesResponse>(`/api/sessions/${encodeURIComponent(id)}/messages`),
 
+  deleteSession: (id: string) =>
+    fetchDashboardJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   getModelInfo: () =>
     fetchDashboardJson<DashboardModelInfo>('/api/model/info'),
 

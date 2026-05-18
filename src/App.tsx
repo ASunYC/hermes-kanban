@@ -203,6 +203,7 @@ const TEXT = {
     delete: 'Delete',
     deleteProfile: 'Delete profile',
     deleteLocalSession: 'Delete local session',
+    deleteSessionFailed: 'Failed to delete session',
     description: 'Description',
     diagnostics: 'diagnostics',
     dispatch: 'Dispatch',
@@ -456,6 +457,7 @@ const TEXT = {
     delete: '删除',
     deleteProfile: '删除角色',
     deleteLocalSession: '删除本地会话',
+    deleteSessionFailed: '删除会话失败',
     description: '描述',
     diagnostics: '诊断',
     dispatch: '调度',
@@ -3387,8 +3389,7 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
     setApproval(null)
   }
 
-  const deleteGatewaySession = (targetSessionId: string) => {
-    if (busy) return
+  const removeGatewaySessionFromState = (targetSessionId: string) => {
     const remaining = sessions.filter((session) => session.id !== targetSessionId)
     const next = remaining.length ? remaining : [createGatewaySessionRecord()]
     if (targetSessionId === sessionId) setSessionId(next[0].id)
@@ -3398,6 +3399,24 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
       nextPinned.delete(targetSessionId)
       return nextPinned
     })
+  }
+
+  const deleteGatewaySession = async (targetSessionId: string) => {
+    if (busy) return
+    const target = sessions.find((session) => session.id === targetSessionId)
+    if (!target) return
+    if (target.history) {
+      try {
+        await dashboardApi.deleteSession(targetSessionId)
+      } catch (err) {
+        const message = (err as Error).message
+        if (!message.startsWith('404:')) {
+          setError(`${labels.deleteSessionFailed}: ${message}`)
+          return
+        }
+      }
+    }
+    removeGatewaySessionFromState(targetSessionId)
     setEvents([])
     setError(null)
     setApproval(null)
@@ -3871,7 +3890,7 @@ function GatewayChatWorkspace({ labels }: { labels: Labels }) {
                     <button
                       className="grid h-7 w-7 place-items-center rounded border border-transparent text-[var(--console-faint)] hover:border-[rgba(255,107,107,0.42)] hover:text-[var(--console-danger)]"
                       disabled={busy}
-                      onClick={() => deleteGatewaySession(session.id)}
+                      onClick={() => void deleteGatewaySession(session.id)}
                       title={labels.deleteLocalSession}
                       type="button"
                     >
